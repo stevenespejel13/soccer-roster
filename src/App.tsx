@@ -8,14 +8,17 @@ export default function App() {
     state,
     setTeamName,
     setOpponentName,
-    setHalfLength,
+    setQuarterLength,
     addPlayer,
     removePlayer,
     toggleStarting,
+    setGoalie,
     startGame,
     toggleTimer,
     adjustScore,
     makeSubstitution,
+    endQuarter,
+    startNextQuarter,
     resetGame,
   } = useGameState();
 
@@ -24,14 +27,15 @@ export default function App() {
       <SetupView
         teamName={state.teamName}
         opponentName={state.opponentName}
-        halfLengthMinutes={state.halfLengthMinutes}
+        quarterLengthMinutes={state.quarterLengthMinutes}
         players={state.players}
         onSetTeamName={setTeamName}
         onSetOpponentName={setOpponentName}
-        onSetHalfLength={setHalfLength}
+        onSetQuarterLength={setQuarterLength}
         onAddPlayer={addPlayer}
         onRemovePlayer={removePlayer}
         onToggleStarting={toggleStarting}
+        onSetGoalie={setGoalie}
         onStartGame={startGame}
       />
     );
@@ -43,6 +47,9 @@ export default function App() {
       onToggleTimer={toggleTimer}
       onAdjustScore={adjustScore}
       onMakeSubstitution={makeSubstitution}
+      onSetGoalie={setGoalie}
+      onEndQuarter={endQuarter}
+      onStartNextQuarter={startNextQuarter}
       onReset={resetGame}
     />
   );

@@ -1,18 +1,25 @@
-export type Position = 'GK' | 'DEF' | 'MID' | 'FWD';
-export type PlayerStatus = 'playing' | 'bench' | 'subbed-out';
+export type PlayerStatus = 'playing' | 'bench';
+
+export interface QuarterRecord {
+  quarter: number;
+  played: boolean;
+  wasGoalie: boolean;
+}
 
 export interface Player {
   id: string;
   name: string;
   number: number;
-  position: Position;
   status: PlayerStatus;
+  isGoalie: boolean;
   playingSeconds: number;
-  enteredAt: number | null; // game clock seconds when they entered
+  enteredAt: number | null;
+  quarterHistory: QuarterRecord[];
 }
 
 export interface Substitution {
-  gameSecond: number;
+  quarter: number;
+  quarterSecond: number;
   playerInId: string;
   playerOutId: string;
   playerInName: string;
@@ -20,14 +27,16 @@ export interface Substitution {
 }
 
 export interface GameState {
-  phase: 'setup' | 'game';
+  phase: 'setup' | 'game' | 'break' | 'final';
   teamName: string;
   opponentName: string;
   players: Player[];
   homeScore: number;
   awayScore: number;
-  gameSeconds: number;
+  quarterSeconds: number;
   isRunning: boolean;
   substitutions: Substitution[];
-  halfLengthMinutes: number;
+  quarterLengthMinutes: number;
+  currentQuarter: number;
+  totalQuarters: number;
 }

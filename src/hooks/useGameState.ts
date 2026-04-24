@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { GameState, Player, Position, Substitution } from '../types';
+import type { GameState, Player, Substitution } from '../types';
 
-const DEFAULT_HALF = 25;
+const TOTAL_QUARTERS = 4;
+const DEFAULT_QUARTER_MINUTES = 10;
+const MAX_FIELD_PLAYERS = 7;
 
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
@@ -14,30 +16,30 @@ const initialState: GameState = {
   players: [],
   homeScore: 0,
   awayScore: 0,
-  gameSeconds: 0,
+  quarterSeconds: 0,
   isRunning: false,
   substitutions: [],
-  halfLengthMinutes: DEFAULT_HALF,
+  quarterLengthMinutes: DEFAULT_QUARTER_MINUTES,
+  currentQuarter: 1,
+  totalQuarters: TOTAL_QUARTERS,
 };
 
 export function useGameState() {
   const [state, setState] = useState<GameState>(initialState);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Tick every second
   useEffect(() => {
-    if (state.isRunning) {
+    if (state.isRunning && state.phase === 'game') {
       timerRef.current = setInterval(() => {
-        setState((prev) => {
-          const newSeconds = prev.gameSeconds + 1;
-          // Accumulate playing time for on-field players
-          const updatedPlayers = prev.players.map((p) =>
+        setState((prev) => ({
+          ...prev,
+          quarterSeconds: prev.quarterSeconds + 1,
+          players: prev.players.map((p) =>
             p.status === 'playing'
               ? { ...p, playingSeconds: p.playingSeconds + 1 }
               : p
-          );
-          return { ...prev, gameSeconds: newSeconds, players: updatedPlayers };
-        });
+          ),
+        }));
       }, 1000);
     } else if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -46,7 +48,7 @@ export function useGameState() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [state.isRunning]);
+  }, [state.isRunning, state.phase]);
 
   const setTeamName = useCallback((name: string) => {
     setState((prev) => ({ ...prev, teamName: name }));
@@ -56,25 +58,23 @@ export function useGameState() {
     setState((prev) => ({ ...prev, opponentName: name }));
   }, []);
 
-  const setHalfLength = useCallback((minutes: number) => {
-    setState((prev) => ({ ...prev, halfLengthMinutes: minutes }));
+  const setQuarterLength = useCallback((minutes: number) => {
+    setState((prev) => ({ ...prev, quarterLengthMinutes: minutes }));
   }, []);
 
-  const addPlayer = useCallback(
-    (name: string, number: number, position: Position) => {
-      const player: Player = {
-        id: makeId(),
-        name,
-        number,
-        position,
-        status: 'bench',
-        playingSeconds: 0,
-        enteredAt: null,
-      };
-      setState((prev) => ({ ...prev, players: [...prev.players, player] }));
-    },
-    []
-  );
+  const addPlayer = useCallback((name: string, number: number) => {
+    const player: Player = {
+      id: makeId(),
+      name,
+      number,
+      status: 'bench',
+      isGoalie: false,
+      playingSeconds: 0,
+      enteredAt: null,
+      quarterHistory: [],
+    };
+    setState((prev) => ({ ...prev, players: [...prev.players, player] }));
+  }, []);
 
   const removePlayer = useCallback((id: string) => {
     setState((prev) => ({
@@ -90,12 +90,25 @@ export function useGameState() {
         ...prev,
         players: prev.players.map((p) => {
           if (p.id !== id) return p;
-          if (p.status === 'playing') return { ...p, status: 'bench' };
-          if (onField < 11) return { ...p, status: 'playing' };
-          return p; // already 11 on field
+          if (p.status === 'playing')
+            return { ...p, status: 'bench' as const, isGoalie: false };
+          if (onField < MAX_FIELD_PLAYERS)
+            return { ...p, status: 'playing' as const };
+          return p;
         }),
       };
     });
+  }, []);
+
+  // id=null clears all; id=string sets that player as goalie (must be on field)
+  const setGoalie = useCallback((id: string | null) => {
+    setState((prev) => ({
+      ...prev,
+      players: prev.players.map((p) => ({
+        ...p,
+        isGoalie: id !== null && p.id === id && p.status === 'playing',
+      })),
+    }));
   }, []);
 
   const startGame = useCallback(() => {
@@ -103,14 +116,17 @@ export function useGameState() {
       ...prev,
       phase: 'game',
       isRunning: true,
-      gameSeconds: 0,
+      quarterSeconds: 0,
+      currentQuarter: 1,
       homeScore: 0,
       awayScore: 0,
       substitutions: [],
-      // Mark entry time for starting players
-      players: prev.players.map((p) =>
-        p.status === 'playing' ? { ...p, enteredAt: 0 } : p
-      ),
+      players: prev.players.map((p) => ({
+        ...p,
+        playingSeconds: 0,
+        quarterHistory: [],
+        enteredAt: p.status === 'playing' ? 0 : null,
+      })),
     }));
   }, []);
 
@@ -118,15 +134,12 @@ export function useGameState() {
     setState((prev) => ({ ...prev, isRunning: !prev.isRunning }));
   }, []);
 
-  const adjustScore = useCallback(
-    (team: 'home' | 'away', delta: number) => {
-      setState((prev) => {
-        const key = team === 'home' ? 'homeScore' : 'awayScore';
-        return { ...prev, [key]: Math.max(0, prev[key] + delta) };
-      });
-    },
-    []
-  );
+  const adjustScore = useCallback((team: 'home' | 'away', delta: number) => {
+    setState((prev) => {
+      const key = team === 'home' ? 'homeScore' : 'awayScore';
+      return { ...prev, [key]: Math.max(0, prev[key] + delta) };
+    });
+  }, []);
 
   const makeSubstitution = useCallback(
     (playerOutId: string, playerInId: string) => {
@@ -136,34 +149,63 @@ export function useGameState() {
         if (!playerOut || !playerIn) return prev;
 
         const sub: Substitution = {
-          gameSecond: prev.gameSeconds,
+          quarter: prev.currentQuarter,
+          quarterSecond: prev.quarterSeconds,
           playerOutId,
           playerInId,
           playerOutName: playerOut.name,
           playerInName: playerIn.name,
         };
 
-        const updatedPlayers = prev.players.map((p) => {
-          if (p.id === playerOutId)
-            return { ...p, status: 'subbed-out' as const, enteredAt: null };
-          if (p.id === playerInId)
-            return {
-              ...p,
-              status: 'playing' as const,
-              enteredAt: prev.gameSeconds,
-            };
-          return p;
-        });
-
         return {
           ...prev,
-          players: updatedPlayers,
+          players: prev.players.map((p) => {
+            if (p.id === playerOutId)
+              return { ...p, status: 'bench' as const, isGoalie: false };
+            if (p.id === playerInId)
+              return {
+                ...p,
+                status: 'playing' as const,
+                enteredAt: prev.quarterSeconds,
+              };
+            return p;
+          }),
           substitutions: [...prev.substitutions, sub],
         };
       });
     },
     []
   );
+
+  const endQuarter = useCallback(() => {
+    setState((prev) => {
+      const q = prev.currentQuarter;
+      const isFinal = q >= prev.totalQuarters;
+      return {
+        ...prev,
+        isRunning: false,
+        phase: isFinal ? 'final' : 'break',
+        currentQuarter: isFinal ? q : q + 1,
+        quarterSeconds: 0,
+        players: prev.players.map((p) => ({
+          ...p,
+          quarterHistory: [
+            ...p.quarterHistory,
+            { quarter: q, played: p.status === 'playing', wasGoalie: p.isGoalie },
+          ],
+        })),
+      };
+    });
+  }, []);
+
+  const startNextQuarter = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      phase: 'game',
+      isRunning: true,
+      quarterSeconds: 0,
+    }));
+  }, []);
 
   const resetGame = useCallback(() => {
     setState(initialState);
@@ -173,14 +215,17 @@ export function useGameState() {
     state,
     setTeamName,
     setOpponentName,
-    setHalfLength,
+    setQuarterLength,
     addPlayer,
     removePlayer,
     toggleStarting,
+    setGoalie,
     startGame,
     toggleTimer,
     adjustScore,
     makeSubstitution,
+    endQuarter,
+    startNextQuarter,
     resetGame,
   };
 }

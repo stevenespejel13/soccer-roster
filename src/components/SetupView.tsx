@@ -1,75 +1,74 @@
 import { useState } from 'react';
-import type { Position, Player } from '../types';
+import type { Player } from '../types';
 
 interface Props {
   teamName: string;
   opponentName: string;
-  halfLengthMinutes: number;
+  quarterLengthMinutes: number;
   players: Player[];
   onSetTeamName: (n: string) => void;
   onSetOpponentName: (n: string) => void;
-  onSetHalfLength: (m: number) => void;
-  onAddPlayer: (name: string, number: number, position: Position) => void;
+  onSetQuarterLength: (m: number) => void;
+  onAddPlayer: (name: string, number: number) => void;
   onRemovePlayer: (id: string) => void;
   onToggleStarting: (id: string) => void;
+  onSetGoalie: (id: string | null) => void;
   onStartGame: () => void;
 }
-
-const POSITIONS: Position[] = ['GK', 'DEF', 'MID', 'FWD'];
-
-const POSITION_COLORS: Record<Position, string> = {
-  GK: '#f59e0b',
-  DEF: '#3b82f6',
-  MID: '#10b981',
-  FWD: '#ef4444',
-};
 
 export default function SetupView({
   teamName,
   opponentName,
-  halfLengthMinutes,
+  quarterLengthMinutes,
   players,
   onSetTeamName,
   onSetOpponentName,
-  onSetHalfLength,
+  onSetQuarterLength,
   onAddPlayer,
   onRemovePlayer,
   onToggleStarting,
+  onSetGoalie,
   onStartGame,
 }: Props) {
   const [name, setName] = useState('');
   const [number, setNumber] = useState('');
-  const [position, setPosition] = useState<Position>('MID');
 
-  const onField = players.filter((p) => p.status === 'playing').length;
+  const onField = players.filter((p) => p.status === 'playing');
+  const benchPlayers = players.filter((p) => p.status === 'bench');
+  const onFieldCount = onField.length;
+  const hasGoalie = onField.some((p) => p.isGoalie);
+  const fieldFull = onFieldCount >= 7;
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     const num = parseInt(number, 10);
     if (!name.trim() || isNaN(num) || num < 1 || num > 99) return;
-    onAddPlayer(name.trim(), num, position);
+    onAddPlayer(name.trim(), num);
     setName('');
     setNumber('');
   }
 
   const canStart =
-    teamName.trim() &&
-    opponentName.trim() &&
-    players.length >= 1 &&
-    onField >= 1;
+    !!teamName.trim() && !!opponentName.trim() && onFieldCount >= 1 && hasGoalie;
 
-  const byPosition = POSITIONS.map((pos) => ({
-    pos,
-    players: players.filter((p) => p.position === pos),
-  })).filter((g) => g.players.length > 0);
+  function startHint() {
+    if (!teamName.trim() || !opponentName.trim())
+      return 'Enter both team names to continue.';
+    if (onFieldCount === 0) return 'Add players and select a starting lineup.';
+    if (!hasGoalie) return 'Tap 🥅 on a starting player to set the goalkeeper.';
+    return '';
+  }
+
+  const hint = startHint();
 
   return (
     <div className="setup-view">
       <header className="app-header">
         <div className="header-title">
           <span className="soccer-icon">⚽</span>
-          <h1>Soccer Roster Manager</h1>
+          <h1>8U AYSO Roster Manager</h1>
         </div>
+        <span className="header-meta">7 v 7 · 4 quarters</span>
       </header>
 
       <div className="setup-grid">
@@ -77,7 +76,7 @@ export default function SetupView({
         <section className="card">
           <h2>Game Info</h2>
           <div className="form-group">
-            <label>Your Team Name</label>
+            <label>Your Team</label>
             <input
               value={teamName}
               onChange={(e) => onSetTeamName(e.target.value)}
@@ -85,7 +84,7 @@ export default function SetupView({
             />
           </div>
           <div className="form-group">
-            <label>Opponent Name</label>
+            <label>Opponent</label>
             <input
               value={opponentName}
               onChange={(e) => onSetOpponentName(e.target.value)}
@@ -93,14 +92,14 @@ export default function SetupView({
             />
           </div>
           <div className="form-group">
-            <label>Half Length (minutes)</label>
+            <label>Quarter Length</label>
             <select
-              value={halfLengthMinutes}
-              onChange={(e) => onSetHalfLength(Number(e.target.value))}
+              value={quarterLengthMinutes}
+              onChange={(e) => onSetQuarterLength(Number(e.target.value))}
             >
-              {[15, 20, 25, 30, 35, 40, 45].map((m) => (
+              {[8, 10, 12, 15].map((m) => (
                 <option key={m} value={m}>
-                  {m} min
+                  {m} minutes
                 </option>
               ))}
             </select>
@@ -120,32 +119,17 @@ export default function SetupView({
                 required
               />
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>#</label>
-                <input
-                  type="number"
-                  value={number}
-                  onChange={(e) => setNumber(e.target.value)}
-                  placeholder="1–99"
-                  min={1}
-                  max={99}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Position</label>
-                <select
-                  value={position}
-                  onChange={(e) => setPosition(e.target.value as Position)}
-                >
-                  {POSITIONS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="form-group">
+              <label>Jersey #</label>
+              <input
+                type="number"
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+                placeholder="1 – 99"
+                min={1}
+                max={99}
+                required
+              />
             </div>
             <button type="submit" className="btn btn-primary">
               Add Player
@@ -157,43 +141,52 @@ export default function SetupView({
         <section className="card card-wide">
           <div className="roster-header">
             <h2>Roster</h2>
-            <span className="lineup-count">
-              Starting: <strong>{onField}</strong> / 11
-            </span>
+            <div className="roster-counts">
+              <span className={`lineup-count ${fieldFull ? 'at-max' : ''}`}>
+                Starting: <strong>{onFieldCount}</strong>/7
+              </span>
+              {onFieldCount > 0 && hasGoalie && (
+                <span className="gk-confirmed">✓ GK set</span>
+              )}
+              {onFieldCount > 0 && !hasGoalie && (
+                <span className="gk-warning">⚠ No GK</span>
+              )}
+            </div>
           </div>
 
           {players.length === 0 && (
             <p className="empty-state">No players added yet.</p>
           )}
 
-          {byPosition.map(({ pos, players: grp }) => (
-            <div key={pos} className="position-group">
-              <div
-                className="position-label"
-                style={{ borderColor: POSITION_COLORS[pos], color: POSITION_COLORS[pos] }}
-              >
-                {pos}
-              </div>
+          {onField.length > 0 && (
+            <div className="roster-section">
+              <div className="roster-section-label">Starting — on field</div>
               <div className="player-list">
-                {grp.map((p) => (
+                {onField.map((p) => (
                   <div
                     key={p.id}
-                    className={`player-row ${p.status === 'playing' ? 'starting' : ''}`}
+                    className={`player-row starting ${p.isGoalie ? 'is-goalie' : ''}`}
                   >
-                    <span className="jersey">{p.number}</span>
+                    <span className="jersey">#{p.number}</span>
                     <span className="player-name">{p.name}</span>
+                    {p.isGoalie && <span className="gk-badge">GK</span>}
                     <div className="player-actions">
                       <button
-                        className={`btn btn-sm ${p.status === 'playing' ? 'btn-success' : 'btn-outline'}`}
-                        onClick={() => onToggleStarting(p.id)}
-                        title={p.status === 'playing' ? 'Remove from starting XI' : 'Add to starting XI'}
+                        className={`btn btn-sm ${p.isGoalie ? 'btn-gk-active' : 'btn-gk'}`}
+                        onClick={() => onSetGoalie(p.isGoalie ? null : p.id)}
+                        title={p.isGoalie ? 'Remove as goalkeeper' : 'Set as goalkeeper'}
                       >
-                        {p.status === 'playing' ? 'Starting' : 'Bench'}
+                        🥅
+                      </button>
+                      <button
+                        className="btn btn-sm btn-warning"
+                        onClick={() => onToggleStarting(p.id)}
+                      >
+                        Bench
                       </button>
                       <button
                         className="btn btn-sm btn-danger"
                         onClick={() => onRemovePlayer(p.id)}
-                        title="Remove player"
                       >
                         ✕
                       </button>
@@ -202,22 +195,42 @@ export default function SetupView({
                 ))}
               </div>
             </div>
-          ))}
+          )}
+
+          {benchPlayers.length > 0 && (
+            <div className="roster-section">
+              <div className="roster-section-label">Bench</div>
+              <div className="player-list">
+                {benchPlayers.map((p) => (
+                  <div key={p.id} className="player-row">
+                    <span className="jersey">#{p.number}</span>
+                    <span className="player-name">{p.name}</span>
+                    <div className="player-actions">
+                      <button
+                        className={`btn btn-sm ${fieldFull ? 'btn-outline' : 'btn-success'}`}
+                        onClick={() => onToggleStarting(p.id)}
+                        disabled={fieldFull}
+                        title={fieldFull ? 'Field is full (7 max)' : 'Add to starting lineup'}
+                      >
+                        Start
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => onRemovePlayer(p.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       </div>
 
       <div className="start-bar">
-        {!canStart && (
-          <p className="start-hint">
-            {!teamName.trim() || !opponentName.trim()
-              ? 'Enter both team names to continue.'
-              : players.length === 0
-              ? 'Add at least one player and set your starting lineup.'
-              : onField === 0
-              ? 'Select at least one starting player.'
-              : ''}
-          </p>
-        )}
+        {hint && <p className="start-hint">{hint}</p>}
         <button
           className="btn btn-primary btn-large"
           disabled={!canStart}

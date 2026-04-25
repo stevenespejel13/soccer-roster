@@ -359,7 +359,7 @@ export default function GameView({
             <div className="break-title">Q{completedQ} Complete</div>
             <div className="break-subtitle">
               {bench.filter(playerSatOutLastQ).length > 0
-                ? 'Orange = sat out last quarter.'
+                ? 'Red = sat out last quarter.'
                 : 'Make any subs before the next quarter.'}
             </div>
           </div>

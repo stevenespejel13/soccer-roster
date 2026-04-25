@@ -375,7 +375,7 @@ h3 { font-size: 0.82rem; font-weight: 600; color: #94a3b8; margin: 0.4rem 0; }
   transition: border-color 0.15s;
 }
 .player-card-gk  { border-color: #b45309; background: #120b00; }
-.player-card-sat { border-color: #92400e; background: #150d00; }
+.player-card-sat { border-color: #991b1b; background: #150000; }
 
 .player-card-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .pc-jersey { font-size: 0.72rem; font-weight: 700; color: #475569; min-width: 26px; }
@@ -412,15 +412,15 @@ h3 { font-size: 0.82rem; font-weight: 600; color: #94a3b8; margin: 0.4rem 0; }
   border-radius: 4px; padding: 2px 5px; letter-spacing: 0.03em; white-space: nowrap;
 }
 .q-played { background: #052e16; color: #22c55e; }
-.q-sat    { background: #2d1200; color: #fb923c; }
+.q-sat    { background: #2d0000; color: #f87171; }
 .q-gk     { background: #2e1a00; color: #fbbf24; }
 .q-future { background: #1e293b; color: #334155; }
 .q-current-on    { background: #052e16; color: #22c55e; outline: 1px solid #22c55e; animation: pulse-green  2s ease-in-out infinite; }
-.q-current-bench { background: #2d1200; color: #fb923c; outline: 1px solid #fb923c; animation: pulse-orange 2s ease-in-out infinite; }
+.q-current-bench { background: #2d0000; color: #f87171; outline: 1px solid #f87171; animation: pulse-red 2s ease-in-out infinite; }
 .q-current-gk    { background: #2e1a00; color: #fbbf24; outline: 1px solid #fbbf24; animation: pulse-gold   2s ease-in-out infinite; }
 
 @keyframes pulse-green  { 0%,100% { outline-color: #22c55e; } 50% { outline-color: #22c55e44; } }
-@keyframes pulse-orange { 0%,100% { outline-color: #fb923c; } 50% { outline-color: #fb923c44; } }
+@keyframes pulse-red    { 0%,100% { outline-color: #f87171; } 50% { outline-color: #f8717144; } }
 @keyframes pulse-gold   { 0%,100% { outline-color: #fbbf24; } 50% { outline-color: #fbbf2444; } }
 
 /* ===== Substitution panel ===== */
@@ -540,8 +540,8 @@ h3 { font-size: 0.82rem; font-weight: 600; color: #94a3b8; margin: 0.4rem 0; }
   display: flex; flex-direction: column; gap: 4px;
 }
 .modal-player-list li {
-  font-size: 0.82rem; color: #fb923c;
-  background: #2d1200; border-radius: 6px; padding: 4px 8px;
+  font-size: 0.82rem; color: #f87171;
+  background: #2d0000; border-radius: 6px; padding: 4px 8px;
 }
 .modal-actions { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
 .modal-actions .btn { width: 100%; }

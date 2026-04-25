@@ -1,56 +1,74 @@
+import { useState } from 'react';
+import { useRoster } from './hooks/useRoster';
 import { useGameState } from './hooks/useGameState';
+import RosterManager from './components/RosterManager';
 import SetupView from './components/SetupView';
 import GameView from './components/GameView';
 import './App.css';
 
-export default function App() {
-  const {
-    state,
-    setTeamName,
-    setOpponentName,
-    setQuarterLength,
-    addPlayer,
-    removePlayer,
-    toggleStarting,
-    setGoalie,
-    startGame,
-    toggleTimer,
-    adjustScore,
-    makeSubstitution,
-    endQuarter,
-    startNextQuarter,
-    resetGame,
-  } = useGameState();
+type AppView = 'roster' | 'game';
 
-  if (state.phase === 'setup') {
+export default function App() {
+  const [appView, setAppView] = useState<AppView>('roster');
+
+  const roster = useRoster();
+  const game = useGameState();
+
+  function handleSetupGame() {
+    game.initializeFromRoster(roster.players);
+    setAppView('game');
+  }
+
+  function handleBackToRoster() {
+    game.resetGame();
+    setAppView('roster');
+  }
+
+  // ── Roster management screen ──
+  if (appView === 'roster') {
     return (
-      <SetupView
-        teamName={state.teamName}
-        opponentName={state.opponentName}
-        quarterLengthMinutes={state.quarterLengthMinutes}
-        players={state.players}
-        onSetTeamName={setTeamName}
-        onSetOpponentName={setOpponentName}
-        onSetQuarterLength={setQuarterLength}
-        onAddPlayer={addPlayer}
-        onRemovePlayer={removePlayer}
-        onToggleStarting={toggleStarting}
-        onSetGoalie={setGoalie}
-        onStartGame={startGame}
+      <RosterManager
+        players={roster.players}
+        onAdd={roster.addPlayer}
+        onUpdate={roster.updatePlayer}
+        onRemove={roster.removePlayer}
+        onSetupGame={handleSetupGame}
       />
     );
   }
 
+  // ── Game setup screen ──
+  if (game.state.phase === 'setup') {
+    return (
+      <SetupView
+        teamName={game.state.teamName}
+        opponentName={game.state.opponentName}
+        quarterLengthMinutes={game.state.quarterLengthMinutes}
+        players={game.state.players}
+        onSetTeamName={game.setTeamName}
+        onSetOpponentName={game.setOpponentName}
+        onSetQuarterLength={game.setQuarterLength}
+        onToggleStarting={game.toggleStarting}
+        onSetGoalie={game.setGoalie}
+        onSetPosition={game.setPosition}
+        onStartGame={game.startGame}
+        onBackToRoster={handleBackToRoster}
+      />
+    );
+  }
+
+  // ── Live game screen (game / break / final) ──
   return (
     <GameView
-      state={state}
-      onToggleTimer={toggleTimer}
-      onAdjustScore={adjustScore}
-      onMakeSubstitution={makeSubstitution}
-      onSetGoalie={setGoalie}
-      onEndQuarter={endQuarter}
-      onStartNextQuarter={startNextQuarter}
-      onReset={resetGame}
+      state={game.state}
+      onToggleTimer={game.toggleTimer}
+      onAdjustScore={game.adjustScore}
+      onMakeSubstitution={game.makeSubstitution}
+      onSetGoalie={game.setGoalie}
+      onSetPosition={game.setPosition}
+      onEndQuarter={game.endQuarter}
+      onStartNextQuarter={game.startNextQuarter}
+      onReset={handleBackToRoster}
     />
   );
 }

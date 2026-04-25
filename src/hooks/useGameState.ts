@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { GameState, Player, Substitution } from '../types';
+import type { GameState, Position, RosterPlayer, Substitution } from '../types';
 
 const TOTAL_QUARTERS = 4;
 const DEFAULT_QUARTER_MINUTES = 10;
 const MAX_FIELD_PLAYERS = 7;
-
-function makeId() {
-  return Math.random().toString(36).slice(2, 9);
-}
 
 const initialState: GameState = {
   phase: 'setup',
@@ -50,6 +46,31 @@ export function useGameState() {
     };
   }, [state.isRunning, state.phase]);
 
+  // Load roster players into setup phase (preserves game config)
+  const initializeFromRoster = useCallback((rosterPlayers: RosterPlayer[]) => {
+    setState((prev) => ({
+      ...prev,
+      phase: 'setup',
+      isRunning: false,
+      quarterSeconds: 0,
+      currentQuarter: 1,
+      homeScore: 0,
+      awayScore: 0,
+      substitutions: [],
+      players: rosterPlayers.map((rp) => ({
+        id: rp.id,
+        name: rp.name,
+        number: rp.number,
+        position: rp.defaultPosition,
+        status: 'bench' as const,
+        isGoalie: false,
+        playingSeconds: 0,
+        enteredAt: null,
+        quarterHistory: [],
+      })),
+    }));
+  }, []);
+
   const setTeamName = useCallback((name: string) => {
     setState((prev) => ({ ...prev, teamName: name }));
   }, []);
@@ -60,27 +81,6 @@ export function useGameState() {
 
   const setQuarterLength = useCallback((minutes: number) => {
     setState((prev) => ({ ...prev, quarterLengthMinutes: minutes }));
-  }, []);
-
-  const addPlayer = useCallback((name: string, number: number) => {
-    const player: Player = {
-      id: makeId(),
-      name,
-      number,
-      status: 'bench',
-      isGoalie: false,
-      playingSeconds: 0,
-      enteredAt: null,
-      quarterHistory: [],
-    };
-    setState((prev) => ({ ...prev, players: [...prev.players, player] }));
-  }, []);
-
-  const removePlayer = useCallback((id: string) => {
-    setState((prev) => ({
-      ...prev,
-      players: prev.players.filter((p) => p.id !== id),
-    }));
   }, []);
 
   const toggleStarting = useCallback((id: string) => {
@@ -100,7 +100,7 @@ export function useGameState() {
     });
   }, []);
 
-  // id=null clears all; id=string sets that player as goalie (must be on field)
+  // id=null clears all; id=string sets that (on-field) player as goalie
   const setGoalie = useCallback((id: string | null) => {
     setState((prev) => ({
       ...prev,
@@ -108,6 +108,15 @@ export function useGameState() {
         ...p,
         isGoalie: id !== null && p.id === id && p.status === 'playing',
       })),
+    }));
+  }, []);
+
+  const setPosition = useCallback((id: string, position: Position) => {
+    setState((prev) => ({
+      ...prev,
+      players: prev.players.map((p) =>
+        p.id === id ? { ...p, position } : p
+      ),
     }));
   }, []);
 
@@ -163,9 +172,11 @@ export function useGameState() {
             if (p.id === playerOutId)
               return { ...p, status: 'bench' as const, isGoalie: false };
             if (p.id === playerInId)
+              // Incoming player takes outgoing player's field position
               return {
                 ...p,
                 status: 'playing' as const,
+                position: playerOut.position,
                 enteredAt: prev.quarterSeconds,
               };
             return p;
@@ -213,13 +224,13 @@ export function useGameState() {
 
   return {
     state,
+    initializeFromRoster,
     setTeamName,
     setOpponentName,
     setQuarterLength,
-    addPlayer,
-    removePlayer,
     toggleStarting,
     setGoalie,
+    setPosition,
     startGame,
     toggleTimer,
     adjustScore,

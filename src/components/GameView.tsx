@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { GameState, Player, Substitution } from '../types';
+import type { GameState, Player, Position, Substitution } from '../types';
+import SoccerField from './SoccerField';
 
 interface Props {
   state: GameState;
@@ -7,10 +8,20 @@ interface Props {
   onAdjustScore: (team: 'home' | 'away', delta: number) => void;
   onMakeSubstitution: (outId: string, inId: string) => void;
   onSetGoalie: (id: string | null) => void;
+  onSetPosition: (id: string, pos: Position) => void;
   onEndQuarter: () => void;
   onStartNextQuarter: () => void;
   onReset: () => void;
 }
+
+const POSITIONS: Position[] = ['GK', 'DEF', 'MID', 'FWD'];
+
+const POS_COLOR: Record<Position, string> = {
+  GK: '#f59e0b',
+  DEF: '#3b82f6',
+  MID: '#10b981',
+  FWD: '#ef4444',
+};
 
 function fmt(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -18,7 +29,6 @@ function fmt(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// Quarter dot showing per-quarter history + current live status
 function QuarterDots({
   player,
   currentQuarter,
@@ -33,31 +43,21 @@ function QuarterDots({
   return (
     <div className="quarter-dots">
       {Array.from({ length: totalQuarters }, (_, i) => i + 1).map((q) => {
-        const record = player.quarterHistory.find((r) => r.quarter === q);
+        const rec = player.quarterHistory.find((r) => r.quarter === q);
         const isCurrent = q === currentQuarter;
-
         let cls = 'q-dot';
-        let label = `Q${q}`;
-
-        if (record) {
-          if (record.wasGoalie) cls += ' q-gk';
-          else if (record.played) cls += ' q-played';
-          else cls += ' q-sat';
+        if (rec) {
+          cls += rec.wasGoalie ? ' q-gk' : rec.played ? ' q-played' : ' q-sat';
         } else if (isCurrent && isLive) {
-          if (player.status === 'playing') {
-            cls += player.isGoalie ? ' q-current-gk' : ' q-current-on';
-          } else {
-            cls += ' q-current-bench';
-          }
+          cls += player.isGoalie
+            ? ' q-current-gk'
+            : player.status === 'playing'
+            ? ' q-current-on'
+            : ' q-current-bench';
         } else {
           cls += ' q-future';
         }
-
-        return (
-          <span key={q} className={cls}>
-            {label}
-          </span>
-        );
+        return <span key={q} className={cls}>Q{q}</span>;
       })}
     </div>
   );
@@ -69,6 +69,7 @@ function PlayerCard({
   totalQuarters,
   isLive,
   onSetGoalie,
+  onSetPosition,
   satOutLastQ,
 }: {
   player: Player;
@@ -76,6 +77,7 @@ function PlayerCard({
   totalQuarters: number;
   isLive: boolean;
   onSetGoalie?: (id: string | null) => void;
+  onSetPosition?: (id: string, pos: Position) => void;
   satOutLastQ?: boolean;
 }) {
   const hasBeenGK =
@@ -94,13 +96,9 @@ function PlayerCard({
       <div className="player-card-top">
         <span className="pc-jersey">#{player.number}</span>
         <span className="pc-name">{player.name}</span>
-        {/* Persistent "has played GK" badge shown on bench players */}
         {hasBeenGK && !player.isGoalie && player.status === 'bench' && (
-          <span className="gk-history-badge" title="Has played GK this game">
-            GK
-          </span>
+          <span className="gk-history-badge" title="Has played GK this game">GK</span>
         )}
-        {/* GK toggle — only on-field players */}
         {onSetGoalie && player.status === 'playing' && (
           <button
             className={`btn-gk-toggle ${player.isGoalie ? 'active' : ''}`}
@@ -111,6 +109,23 @@ function PlayerCard({
           </button>
         )}
       </div>
+
+      {/* Position pills — on-field players only */}
+      {onSetPosition && player.status === 'playing' && (
+        <div className="pc-pos-pills">
+          {POSITIONS.map((pos) => (
+            <button
+              key={pos}
+              className={`pos-pill ${player.position === pos ? 'active' : ''}`}
+              style={player.position === pos ? { background: POS_COLOR[pos] } : {}}
+              onClick={() => onSetPosition(player.id, pos)}
+            >
+              {pos}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="player-card-bottom">
         <QuarterDots
           player={player}
@@ -118,6 +133,14 @@ function PlayerCard({
           totalQuarters={totalQuarters}
           isLive={isLive}
         />
+        {player.status === 'bench' && (
+          <span
+            className="pc-pos-tag"
+            style={{ background: POS_COLOR[player.position] }}
+          >
+            {player.position}
+          </span>
+        )}
         <span className="pc-time">{fmt(player.playingSeconds)}</span>
       </div>
     </div>
@@ -146,6 +169,7 @@ export default function GameView({
   onAdjustScore,
   onMakeSubstitution,
   onSetGoalie,
+  onSetPosition,
   onEndQuarter,
   onStartNextQuarter,
   onReset,
@@ -162,10 +186,8 @@ export default function GameView({
   const isBreak = state.phase === 'break';
   const isFinal = state.phase === 'final';
 
-  // Quarter that just ended (during break)
   const completedQ = state.currentQuarter - 1;
 
-  // Highlight players who sat out the most recently completed quarter
   function satOutLastQ(player: Player) {
     if (!isBreak) return false;
     const rec = player.quarterHistory.find((r) => r.quarter === completedQ);
@@ -248,9 +270,9 @@ export default function GameView({
           <div>
             <div className="break-title">Q{completedQ} Complete</div>
             <div className="break-subtitle">
-              {bench.filter((p) => satOutLastQ(p)).length > 0
-                ? 'Players highlighted in orange sat out last quarter.'
-                : 'Make any subs before starting the next quarter.'}
+              {bench.filter(satOutLastQ).length > 0
+                ? 'Orange = sat out last quarter.'
+                : 'Make any subs before the next quarter.'}
             </div>
           </div>
           <button className="btn btn-success" onClick={onStartNextQuarter}>
@@ -269,7 +291,7 @@ export default function GameView({
             </div>
           </div>
           <button className="btn btn-primary" onClick={onReset}>
-            New Game
+            Back to Roster
           </button>
         </div>
       )}
@@ -279,12 +301,23 @@ export default function GameView({
         {noGoalie && !isFinal && (
           <div className="game-content-wide">
             <div className="no-gk-warning">
-              ⚠ No goalkeeper assigned — tap 🥅 on an on-field player to set one.
+              ⚠ No goalkeeper — tap 🥅 on a player card or tap their circle on the field.
             </div>
           </div>
         )}
 
-        {/* ── On Field ── */}
+        {/* ── Soccer Field (full width) ── */}
+        <div className="game-content-wide">
+          <div className="card field-card">
+            <SoccerField
+              players={state.players}
+              onSetGoalie={isFinal ? () => {} : onSetGoalie}
+              onSetPosition={isFinal ? () => {} : onSetPosition}
+            />
+          </div>
+        </div>
+
+        {/* ── On Field list ── */}
         <section className="card">
           <h2>On Field ({onField.length}/7)</h2>
           {onField.length === 0 ? (
@@ -298,14 +331,15 @@ export default function GameView({
                   currentQuarter={state.currentQuarter}
                   totalQuarters={state.totalQuarters}
                   isLive={isLive}
-                  onSetGoalie={!isFinal ? onSetGoalie : undefined}
+                  onSetGoalie={isFinal ? undefined : onSetGoalie}
+                  onSetPosition={isFinal ? undefined : onSetPosition}
                 />
               ))}
             </div>
           )}
         </section>
 
-        {/* ── Bench ── */}
+        {/* ── Bench list ── */}
         <section className="card">
           <h2>Bench ({bench.length})</h2>
           {bench.length === 0 ? (
@@ -326,7 +360,7 @@ export default function GameView({
           )}
         </section>
 
-        {/* ── Substitutions ── */}
+        {/* ── Substitution panel ── */}
         {!isFinal && (
           <section className="card">
             <div className="sub-panel-header">
@@ -352,7 +386,7 @@ export default function GameView({
                     <option value="">— select —</option>
                     {onField.map((p) => (
                       <option key={p.id} value={p.id}>
-                        #{p.number} {p.name}{p.isGoalie ? ' [GK]' : ''} · {fmt(p.playingSeconds)}
+                        #{p.number} {p.name} [{p.position}]{p.isGoalie ? ' GK' : ''} · {fmt(p.playingSeconds)}
                       </option>
                     ))}
                   </select>
@@ -367,12 +401,15 @@ export default function GameView({
                     <option value="">— select —</option>
                     {bench.map((p) => (
                       <option key={p.id} value={p.id}>
-                        #{p.number} {p.name}
-                        {p.quarterHistory.some((r) => r.wasGoalie) ? ' [has played GK]' : ''}
+                        #{p.number} {p.name} [{p.position}]
+                        {p.quarterHistory.some((r) => r.wasGoalie) ? ' · has played GK' : ''}
                       </option>
                     ))}
                   </select>
                 </div>
+                <p className="sub-note">
+                  Incoming player will take the outgoing player's position on the field.
+                </p>
                 <button
                   type="submit"
                   className="btn btn-primary"
@@ -387,7 +424,7 @@ export default function GameView({
           </section>
         )}
 
-        {/* ── Playing Time Summary ── */}
+        {/* ── Playing time summary ── */}
         <section className="card">
           <h2>Playing Time</h2>
           <table className="time-table">
@@ -395,7 +432,7 @@ export default function GameView({
               <tr>
                 <th>#</th>
                 <th>Name</th>
-                <th>Status</th>
+                <th>Pos</th>
                 <th>Q History</th>
                 <th>Time</th>
               </tr>
@@ -413,8 +450,11 @@ export default function GameView({
                       )}
                     </td>
                     <td>
-                      <span className={`status-chip status-${p.status}`}>
-                        {p.status === 'playing' ? 'On Field' : 'Bench'}
+                      <span
+                        className="pos-tag"
+                        style={{ background: POS_COLOR[p.position] }}
+                      >
+                        {p.position}
                       </span>
                     </td>
                     <td>
@@ -436,10 +476,7 @@ export default function GameView({
       {/* ── Reset bar ── */}
       <div className="reset-bar">
         {!confirmReset ? (
-          <button
-            className="btn btn-outline btn-sm"
-            onClick={() => setConfirmReset(true)}
-          >
+          <button className="btn btn-outline btn-sm" onClick={() => setConfirmReset(true)}>
             End Game / Reset
           </button>
         ) : (
@@ -448,10 +485,7 @@ export default function GameView({
             <button className="btn btn-danger btn-sm" onClick={onReset}>
               Yes, Reset
             </button>
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => setConfirmReset(false)}
-            >
+            <button className="btn btn-outline btn-sm" onClick={() => setConfirmReset(false)}>
               Cancel
             </button>
           </div>

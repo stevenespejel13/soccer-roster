@@ -1,15 +1,27 @@
+export type Position = 'GK' | 'DEF' | 'MID' | 'FWD';
 export type PlayerStatus = 'playing' | 'bench';
 
+// Persistent roster entry (saved to localStorage)
+export interface RosterPlayer {
+  id: string;
+  name: string;
+  number: number;
+  defaultPosition: Position;
+}
+
+// Per-quarter record of what each player did
 export interface QuarterRecord {
   quarter: number;
   played: boolean;
   wasGoalie: boolean;
 }
 
+// In-game player (created from RosterPlayer at game start)
 export interface Player {
   id: string;
   name: string;
   number: number;
+  position: Position;       // current game position (may differ from defaultPosition)
   status: PlayerStatus;
   isGoalie: boolean;
   playingSeconds: number;

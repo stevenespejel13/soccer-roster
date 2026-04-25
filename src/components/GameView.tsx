@@ -8,13 +8,11 @@ interface Props {
   onAdjustScore: (team: 'home' | 'away', delta: number) => void;
   onMakeSubstitution: (outId: string, inId: string) => void;
   onSetGoalie: (id: string | null) => void;
-  onSetPosition: (id: string, pos: Position) => void;
+  onMovePlayer: (id: string, x: number, y: number) => void;
   onEndQuarter: () => void;
   onStartNextQuarter: () => void;
   onReset: () => void;
 }
-
-const POSITIONS: Position[] = ['GK', 'DEF', 'MID', 'FWD'];
 
 const POS_COLOR: Record<Position, string> = {
   GK: '#f59e0b',
@@ -69,7 +67,6 @@ function PlayerCard({
   totalQuarters,
   isLive,
   onSetGoalie,
-  onSetPosition,
   satOutLastQ,
 }: {
   player: Player;
@@ -77,7 +74,6 @@ function PlayerCard({
   totalQuarters: number;
   isLive: boolean;
   onSetGoalie?: (id: string | null) => void;
-  onSetPosition?: (id: string, pos: Position) => void;
   satOutLastQ?: boolean;
 }) {
   const hasBeenGK =
@@ -110,22 +106,6 @@ function PlayerCard({
         )}
       </div>
 
-      {/* Position pills — on-field players only */}
-      {onSetPosition && player.status === 'playing' && (
-        <div className="pc-pos-pills">
-          {POSITIONS.map((pos) => (
-            <button
-              key={pos}
-              className={`pos-pill ${player.position === pos ? 'active' : ''}`}
-              style={player.position === pos ? { background: POS_COLOR[pos] } : {}}
-              onClick={() => onSetPosition(player.id, pos)}
-            >
-              {pos}
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="player-card-bottom">
         <QuarterDots
           player={player}
@@ -133,14 +113,12 @@ function PlayerCard({
           totalQuarters={totalQuarters}
           isLive={isLive}
         />
-        {player.status === 'bench' && (
-          <span
-            className="pc-pos-tag"
-            style={{ background: POS_COLOR[player.position] }}
-          >
-            {player.position}
-          </span>
-        )}
+        <span
+          className="pc-pos-tag"
+          style={{ background: POS_COLOR[player.position] }}
+        >
+          {player.position}
+        </span>
         <span className="pc-time">{fmt(player.playingSeconds)}</span>
       </div>
     </div>
@@ -163,13 +141,77 @@ function SubLog({ subs }: { subs: Substitution[] }) {
   );
 }
 
+/** Modal shown when subbing in a player who already sat out */
+function SatOutWarningModal({
+  playerName,
+  onConfirm,
+  onCancel,
+}: {
+  playerName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box">
+        <div className="modal-icon">⚠️</div>
+        <h2 className="modal-title">Player Already Sat Out</h2>
+        <p className="modal-body">
+          <strong>{playerName}</strong> has already sat out at least one quarter this game.
+          Are you sure you want to sub them back in?
+        </p>
+        <div className="modal-actions">
+          <button className="btn btn-danger" onClick={onConfirm}>
+            Yes, Sub Them In
+          </button>
+          <button className="btn btn-outline" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Modal shown when starting a quarter if bench players will sit out again */
+function SatOutAgainModal({
+  players,
+  onConfirm,
+}: {
+  players: Player[];
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box">
+        <div className="modal-icon">⚠️</div>
+        <h2 className="modal-title">Players Sitting Out Again</h2>
+        <p className="modal-body">
+          The following players sat out last quarter and will sit out again:
+        </p>
+        <ul className="modal-player-list">
+          {players.map((p) => (
+            <li key={p.id}>#{p.number} {p.name}</li>
+          ))}
+        </ul>
+        <p className="modal-body">Make substitutions before starting, or acknowledge to continue.</p>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={onConfirm}>
+            Acknowledged, Start Quarter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GameView({
   state,
   onToggleTimer,
   onAdjustScore,
   onMakeSubstitution,
   onSetGoalie,
-  onSetPosition,
+  onMovePlayer,
   onEndQuarter,
   onStartNextQuarter,
   onReset,
@@ -178,6 +220,10 @@ export default function GameView({
   const [subInId, setSubInId] = useState('');
   const [showSubPanel, setShowSubPanel] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // Sub warning modal state
+  const [subWarning, setSubWarning] = useState<{ outId: string; inId: string } | null>(null);
+  const [quarterWarningPlayers, setQuarterWarningPlayers] = useState<Player[] | null>(null);
 
   const onField = state.players.filter((p) => p.status === 'playing');
   const bench = state.players.filter((p) => p.status === 'bench');
@@ -188,10 +234,14 @@ export default function GameView({
 
   const completedQ = state.currentQuarter - 1;
 
-  function satOutLastQ(player: Player) {
+  function playerSatOutLastQ(player: Player) {
     if (!isBreak) return false;
     const rec = player.quarterHistory.find((r) => r.quarter === completedQ);
     return !!rec && !rec.played;
+  }
+
+  function playerHasSatOut(player: Player) {
+    return player.quarterHistory.some((r) => !r.played);
   }
 
   const quarterProgress = Math.min(
@@ -201,17 +251,55 @@ export default function GameView({
 
   const noGoalie = onField.length > 0 && !onField.some((p) => p.isGoalie);
 
-  function handleSub(e: React.FormEvent) {
+  function handleSubSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!subOutId || !subInId) return;
-    onMakeSubstitution(subOutId, subInId);
+    const playerIn = state.players.find((p) => p.id === subInId);
+    if (playerIn && playerHasSatOut(playerIn)) {
+      setSubWarning({ outId: subOutId, inId: subInId });
+      return;
+    }
+    commitSub(subOutId, subInId);
+  }
+
+  function commitSub(outId: string, inId: string) {
+    onMakeSubstitution(outId, inId);
     setSubOutId('');
     setSubInId('');
     setShowSubPanel(false);
+    setSubWarning(null);
+  }
+
+  function handleStartNextQuarter() {
+    if (!isBreak) { onStartNextQuarter(); return; }
+    // Warn if any bench players will sit out a 2nd time
+    const sittingOutAgain = bench.filter(
+      (p) => playerSatOutLastQ(p) && p.quarterHistory.filter((r) => !r.played).length >= 1
+    );
+    if (sittingOutAgain.length > 0) {
+      setQuarterWarningPlayers(sittingOutAgain);
+    } else {
+      onStartNextQuarter();
+    }
   }
 
   return (
     <div className="game-view">
+      {/* ── Modals ── */}
+      {subWarning && (
+        <SatOutWarningModal
+          playerName={state.players.find((p) => p.id === subWarning.inId)?.name ?? ''}
+          onConfirm={() => commitSub(subWarning.outId, subWarning.inId)}
+          onCancel={() => setSubWarning(null)}
+        />
+      )}
+      {quarterWarningPlayers && (
+        <SatOutAgainModal
+          players={quarterWarningPlayers}
+          onConfirm={() => { setQuarterWarningPlayers(null); onStartNextQuarter(); }}
+        />
+      )}
+
       {/* ── Scoreboard ── */}
       <header className="scoreboard">
         <div className="score-team">
@@ -247,7 +335,7 @@ export default function GameView({
               </button>
             )}
             {isBreak && (
-              <button className="btn btn-success btn-sm" onClick={onStartNextQuarter}>
+              <button className="btn btn-success btn-sm" onClick={handleStartNextQuarter}>
                 ▶ Start Q{state.currentQuarter}
               </button>
             )}
@@ -270,12 +358,12 @@ export default function GameView({
           <div>
             <div className="break-title">Q{completedQ} Complete</div>
             <div className="break-subtitle">
-              {bench.filter(satOutLastQ).length > 0
+              {bench.filter(playerSatOutLastQ).length > 0
                 ? 'Orange = sat out last quarter.'
                 : 'Make any subs before the next quarter.'}
             </div>
           </div>
-          <button className="btn btn-success" onClick={onStartNextQuarter}>
+          <button className="btn btn-success" onClick={handleStartNextQuarter}>
             ▶ Start Q{state.currentQuarter}
           </button>
         </div>
@@ -301,7 +389,7 @@ export default function GameView({
         {noGoalie && !isFinal && (
           <div className="game-content-wide">
             <div className="no-gk-warning">
-              ⚠ No goalkeeper — tap 🥅 on a player card or tap their circle on the field.
+              ⚠ No goalkeeper — drag a player to the GK zone or tap 🥅 on a player card.
             </div>
           </div>
         )}
@@ -312,7 +400,8 @@ export default function GameView({
             <SoccerField
               players={state.players}
               onSetGoalie={isFinal ? () => {} : onSetGoalie}
-              onSetPosition={isFinal ? () => {} : onSetPosition}
+              onMovePlayer={isFinal ? () => {} : onMovePlayer}
+              readonly={isFinal}
             />
           </div>
         </div>
@@ -332,7 +421,6 @@ export default function GameView({
                   totalQuarters={state.totalQuarters}
                   isLive={isLive}
                   onSetGoalie={isFinal ? undefined : onSetGoalie}
-                  onSetPosition={isFinal ? undefined : onSetPosition}
                 />
               ))}
             </div>
@@ -353,7 +441,7 @@ export default function GameView({
                   currentQuarter={state.currentQuarter}
                   totalQuarters={state.totalQuarters}
                   isLive={isLive}
-                  satOutLastQ={satOutLastQ(p)}
+                  satOutLastQ={playerSatOutLastQ(p)}
                 />
               ))}
             </div>
@@ -375,7 +463,7 @@ export default function GameView({
             </div>
 
             {showSubPanel && (
-              <form onSubmit={handleSub} className="sub-form">
+              <form onSubmit={handleSubSubmit} className="sub-form">
                 <div className="form-group">
                   <label>Coming Off</label>
                   <select
@@ -403,12 +491,13 @@ export default function GameView({
                       <option key={p.id} value={p.id}>
                         #{p.number} {p.name} [{p.position}]
                         {p.quarterHistory.some((r) => r.wasGoalie) ? ' · has played GK' : ''}
+                        {playerHasSatOut(p) ? ' ⚠ sat out' : ''}
                       </option>
                     ))}
                   </select>
                 </div>
                 <p className="sub-note">
-                  Incoming player will take the outgoing player's position on the field.
+                  Incoming player takes the outgoing player's field position.
                 </p>
                 <button
                   type="submit"

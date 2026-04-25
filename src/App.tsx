@@ -65,7 +65,7 @@ export default function App() {
       onAdjustScore={game.adjustScore}
       onMakeSubstitution={game.makeSubstitution}
       onSetGoalie={game.setGoalie}
-      onSetPosition={game.setPosition}
+      onMovePlayer={game.movePlayer}
       onEndQuarter={game.endQuarter}
       onStartNextQuarter={game.startNextQuarter}
       onReset={handleBackToRoster}

@@ -27,6 +27,8 @@ export interface Player {
   playingSeconds: number;
   enteredAt: number | null;
   quarterHistory: QuarterRecord[];
+  fieldX: number;           // % from left on soccer field (0–100)
+  fieldY: number;           // % from top on soccer field (0–100)
 }
 
 export interface Substitution {

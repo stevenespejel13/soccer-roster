@@ -1,20 +1,13 @@
+import { useCallback, useRef, useState } from 'react';
 import type { Player, Position } from '../types';
+import { getPositionFromCoords } from '../utils';
 
 interface Props {
   players: Player[];
   onSetGoalie: (id: string | null) => void;
-  onSetPosition: (id: string, pos: Position) => void;
+  onMovePlayer: (id: string, x: number, y: number) => void;
+  readonly?: boolean;
 }
-
-const POSITIONS: Position[] = ['GK', 'DEF', 'MID', 'FWD'];
-
-// Y% from top of field (our team attacks upward → GK is at bottom)
-const ZONE_Y: Record<Position, number> = {
-  FWD: 14,
-  MID: 38,
-  DEF: 63,
-  GK: 85,
-};
 
 const POS_COLOR: Record<Position, string> = {
   GK: '#f59e0b',
@@ -23,86 +16,88 @@ const POS_COLOR: Record<Position, string> = {
   FWD: '#ef4444',
 };
 
-// Distribute N players evenly across the field width
-function spreadX(count: number): number[] {
-  if (count === 0) return [];
-  if (count === 1) return [50];
-  const margin = 12;
-  const step = (100 - 2 * margin) / (count - 1);
-  return Array.from({ length: count }, (_, i) => margin + i * step);
-}
+const DRAG_THRESHOLD = 8; // px — below this is a tap
 
-interface FieldPlayerProps {
-  player: Player;
-  x: number;
-  y: number;
-  onSetGoalie: (id: string | null) => void;
-  onSetPosition: (id: string, pos: Position) => void;
-}
+export default function SoccerField({ players, onSetGoalie, onMovePlayer, readonly }: Props) {
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<{ id: string; x: number; y: number } | null>(null);
 
-function FieldPlayer({ player, x, y, onSetGoalie, onSetPosition }: FieldPlayerProps) {
-  const firstName = player.name.split(' ')[0];
+  // Track pointer-down position to distinguish tap vs drag
+  const downPos = useRef<{ px: number; py: number; id: string } | null>(null);
+  const hasDragged = useRef(false);
 
-  function handleClick() {
-    onSetGoalie(player.isGoalie ? null : player.id);
+  const toFieldPercent = useCallback((clientX: number, clientY: number) => {
+    const rect = fieldRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 50, y: 50 };
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+    return { x, y };
+  }, []);
+
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (readonly) return;
+    const target = e.target as HTMLElement;
+    const playerEl = target.closest('[data-player-id]') as HTMLElement | null;
+    if (!playerEl) return;
+    const id = playerEl.dataset.playerId!;
+    e.preventDefault();
+    fieldRef.current?.setPointerCapture(e.pointerId);
+    downPos.current = { px: e.clientX, py: e.clientY, id };
+    hasDragged.current = false;
+    const { x, y } = toFieldPercent(e.clientX, e.clientY);
+    setDragging({ id, x, y });
   }
 
-  return (
-    <div
-      className={`field-player ${player.isGoalie ? 'field-player-gk' : ''}`}
-      style={{ left: `${x}%`, top: `${y}%` }}
-      title={`#${player.number} ${player.name} · ${player.position}${player.isGoalie ? ' (GK)' : ''} · tap to toggle GK`}
-    >
-      <button
-        className="field-player-circle"
-        style={{ background: POS_COLOR[player.position] }}
-        onClick={handleClick}
-        aria-label={`${player.name} – tap to toggle goalkeeper`}
-      >
-        <span className="field-player-number">{player.number}</span>
-        {player.isGoalie && <span className="field-gk-dot" />}
-      </button>
-      <div className="field-player-name">{firstName}</div>
-      {/* Mini position selector */}
-      <div className="field-pos-selector">
-        {POSITIONS.map((pos) => (
-          <button
-            key={pos}
-            className={`field-pos-btn ${player.position === pos ? 'active' : ''}`}
-            style={player.position === pos ? { background: POS_COLOR[pos] } : {}}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSetPosition(player.id, pos);
-            }}
-          >
-            {pos}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!downPos.current || !dragging) return;
+    const dx = e.clientX - downPos.current.px;
+    const dy = e.clientY - downPos.current.py;
+    if (!hasDragged.current && Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
+      hasDragged.current = true;
+    }
+    if (hasDragged.current) {
+      const { x, y } = toFieldPercent(e.clientX, e.clientY);
+      setDragging({ id: downPos.current.id, x, y });
+    }
+  }
 
-export default function SoccerField({ players, onSetGoalie, onSetPosition }: Props) {
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!downPos.current) return;
+    const { id } = downPos.current;
+
+    if (!hasDragged.current) {
+      // It was a tap — toggle GK
+      const player = players.find((p) => p.id === id);
+      if (player) onSetGoalie(player.isGoalie ? null : id);
+    } else {
+      // Drag ended — commit position
+      const { x, y } = toFieldPercent(e.clientX, e.clientY);
+      onMovePlayer(id, x, y);
+    }
+
+    downPos.current = null;
+    hasDragged.current = false;
+    setDragging(null);
+  }
+
   const onField = players.filter((p) => p.status === 'playing');
 
-  const groups = POSITIONS.reduce(
-    (acc, pos) => {
-      acc[pos] = onField.filter((p) => p.position === pos);
-      return acc;
-    },
-    {} as Record<Position, Player[]>
-  );
-
-  const positioned = POSITIONS.flatMap((pos) => {
-    const group = groups[pos];
-    const xs = spreadX(group.length);
-    return group.map((player, i) => ({ player, x: xs[i], y: ZONE_Y[pos] }));
-  });
+  // While dragging, show preview position label
+  const dragPos = dragging
+    ? getPositionFromCoords(dragging.x, dragging.y)
+    : null;
+  const dragPlayer = dragging ? players.find((p) => p.id === dragging.id) : null;
 
   return (
     <div className="field-wrapper">
-      <div className="soccer-field">
+      <div
+        ref={fieldRef}
+        className="soccer-field"
+        style={{ touchAction: 'none' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      >
         {/* ── Field markings ── */}
         <div className="field-outline" />
         <div className="field-center-line" />
@@ -116,22 +111,82 @@ export default function SoccerField({ players, onSetGoalie, onSetPosition }: Pro
         <div className="field-zone-label field-zone-attack">▲ Attack</div>
         <div className="field-zone-label field-zone-defend">▼ Defend</div>
 
+        {/* ── Zone overlays (visible during drag) ── */}
+        {dragging && (
+          <>
+            <div className="field-zone-overlay" style={{ top: 0, height: '25%', background: `${POS_COLOR.FWD}22`, borderBottom: `1px dashed ${POS_COLOR.FWD}88` }}>
+              <span style={{ color: POS_COLOR.FWD }}>FWD</span>
+            </div>
+            <div className="field-zone-overlay" style={{ top: '25%', height: '25%', background: `${POS_COLOR.MID}22`, borderBottom: `1px dashed ${POS_COLOR.MID}88` }}>
+              <span style={{ color: POS_COLOR.MID }}>MID</span>
+            </div>
+            <div className="field-zone-overlay" style={{ top: '50%', height: '25%', background: `${POS_COLOR.DEF}22`, borderBottom: `1px dashed ${POS_COLOR.DEF}88` }}>
+              <span style={{ color: POS_COLOR.DEF }}>DEF</span>
+            </div>
+            <div className="field-zone-overlay" style={{ top: '75%', height: '25%', background: `${POS_COLOR.DEF}22` }}>
+              <span style={{ color: POS_COLOR.DEF }}>DEF / <span style={{ color: POS_COLOR.GK }}>GK (center)</span></span>
+            </div>
+          </>
+        )}
+
         {/* ── Players ── */}
-        {positioned.map(({ player, x, y }) => (
-          <FieldPlayer
-            key={player.id}
-            player={player}
-            x={x}
-            y={y}
-            onSetGoalie={onSetGoalie}
-            onSetPosition={onSetPosition}
-          />
-        ))}
+        {onField.map((player) => {
+          const isDraggingThis = dragging?.id === player.id;
+          const x = isDraggingThis ? dragging!.x : player.fieldX;
+          const y = isDraggingThis ? dragging!.y : player.fieldY;
+          const livePosColor = isDraggingThis && dragPos ? POS_COLOR[dragPos] : POS_COLOR[player.position];
+          const firstName = player.name.split(' ')[0];
+
+          return (
+            <div
+              key={player.id}
+              data-player-id={player.id}
+              className={`field-player ${player.isGoalie ? 'field-player-gk' : ''} ${isDraggingThis ? 'field-player-dragging' : ''}`}
+              style={{
+                left: `${x}%`,
+                top: `${y}%`,
+                transition: isDraggingThis ? 'none' : 'left 0.25s ease, top 0.25s ease',
+              }}
+            >
+              <div
+                className="field-player-circle"
+                style={{ background: livePosColor }}
+              >
+                <span className="field-player-number">{player.number}</span>
+                {player.isGoalie && <span className="field-gk-dot" />}
+              </div>
+              <div className="field-player-name">
+                {firstName}
+                {isDraggingThis && dragPos && (
+                  <span className="field-drag-pos" style={{ color: POS_COLOR[dragPos] }}> {dragPos}</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
 
         {onField.length === 0 && (
           <div className="field-empty">No players on field</div>
         )}
+
+        {/* ── Drag helper tooltip ── */}
+        {dragging && dragPos && dragPlayer && (
+          <div
+            className="field-drag-tooltip"
+            style={{
+              left: `${dragging.x}%`,
+              top: `${Math.max(dragging.y - 12, 2)}%`,
+              background: POS_COLOR[dragPos],
+            }}
+          >
+            {dragPos}
+          </div>
+        )}
       </div>
+
+      {!readonly && (
+        <p className="field-hint">Tap circle to toggle GK · Drag to reposition</p>
+      )}
     </div>
   );
 }

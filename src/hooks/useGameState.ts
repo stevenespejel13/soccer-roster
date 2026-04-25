@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameState, Position, RosterPlayer, Substitution } from '../types';
+import { getPositionFromCoords, layoutGroup } from '../utils';
 
 const TOTAL_QUARTERS = 4;
 const DEFAULT_QUARTER_MINUTES = 10;
@@ -67,6 +68,8 @@ export function useGameState() {
         playingSeconds: 0,
         enteredAt: null,
         quarterHistory: [],
+        fieldX: 50,
+        fieldY: 50,
       })),
     }));
   }, []);
@@ -121,22 +124,28 @@ export function useGameState() {
   }, []);
 
   const startGame = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      phase: 'game',
-      isRunning: true,
-      quarterSeconds: 0,
-      currentQuarter: 1,
-      homeScore: 0,
-      awayScore: 0,
-      substitutions: [],
-      players: prev.players.map((p) => ({
-        ...p,
-        playingSeconds: 0,
-        quarterHistory: [],
-        enteredAt: p.status === 'playing' ? 0 : null,
-      })),
-    }));
+    setState((prev) => {
+      const onField = prev.players.filter((p) => p.status === 'playing');
+      const coords = layoutGroup(onField.map((p) => ({ id: p.id, position: p.position })));
+      return {
+        ...prev,
+        phase: 'game',
+        isRunning: true,
+        quarterSeconds: 0,
+        currentQuarter: 1,
+        homeScore: 0,
+        awayScore: 0,
+        substitutions: [],
+        players: prev.players.map((p) => ({
+          ...p,
+          playingSeconds: 0,
+          quarterHistory: [],
+          enteredAt: p.status === 'playing' ? 0 : null,
+          fieldX: coords[p.id]?.x ?? p.fieldX,
+          fieldY: coords[p.id]?.y ?? p.fieldY,
+        })),
+      };
+    });
   }, []);
 
   const toggleTimer = useCallback(() => {
@@ -172,11 +181,12 @@ export function useGameState() {
             if (p.id === playerOutId)
               return { ...p, status: 'bench' as const, isGoalie: false };
             if (p.id === playerInId)
-              // Incoming player takes outgoing player's field position
               return {
                 ...p,
                 status: 'playing' as const,
                 position: playerOut.position,
+                fieldX: playerOut.fieldX,
+                fieldY: playerOut.fieldY,
                 enteredAt: prev.quarterSeconds,
               };
             return p;
@@ -218,6 +228,24 @@ export function useGameState() {
     }));
   }, []);
 
+  const movePlayer = useCallback((id: string, x: number, y: number) => {
+    const position = getPositionFromCoords(x, y);
+    setState((prev) => ({
+      ...prev,
+      players: prev.players.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              fieldX: x,
+              fieldY: y,
+              position,
+              isGoalie: position === 'GK',
+            }
+          : p
+      ),
+    }));
+  }, []);
+
   const resetGame = useCallback(() => {
     setState(initialState);
   }, []);
@@ -237,6 +265,7 @@ export function useGameState() {
     makeSubstitution,
     endQuarter,
     startNextQuarter,
+    movePlayer,
     resetGame,
   };
 }

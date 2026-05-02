@@ -48,9 +48,10 @@ export default function App() {
         onSetTeamName={game.setTeamName}
         onSetOpponentName={game.setOpponentName}
         onSetQuarterLength={game.setQuarterLength}
-        onToggleStarting={game.toggleStarting}
         onSetGoalie={game.setGoalie}
-        onSetPosition={game.setPosition}
+        onMovePlayer={game.movePlayer}
+        onAddToField={game.addToField}
+        onRemoveFromField={game.toggleStarting}
         onStartGame={game.startGame}
         onBackToRoster={handleBackToRoster}
       />

@@ -86,6 +86,22 @@ export function useGameState() {
     setState((prev) => ({ ...prev, quarterLengthMinutes: minutes }));
   }, []);
 
+  const addToField = useCallback((id: string, x: number, y: number) => {
+    setState((prev) => {
+      const onFieldCount = prev.players.filter((p) => p.status === 'playing').length;
+      if (onFieldCount >= MAX_FIELD_PLAYERS) return prev;
+      const position = getPositionFromCoords(x, y);
+      return {
+        ...prev,
+        players: prev.players.map((p) =>
+          p.id === id
+            ? { ...p, status: 'playing' as const, fieldX: x, fieldY: y, position, isGoalie: position === 'GK' }
+            : p
+        ),
+      };
+    });
+  }, []);
+
   const toggleStarting = useCallback((id: string) => {
     setState((prev) => {
       const onField = prev.players.filter((p) => p.status === 'playing').length;
@@ -265,6 +281,7 @@ export function useGameState() {
     makeSubstitution,
     endQuarter,
     startNextQuarter,
+    addToField,
     movePlayer,
     resetGame,
   };
